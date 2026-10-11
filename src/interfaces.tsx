@@ -94,6 +94,24 @@ export const Spreadsheet: React.FC<{ fillStart: number; errorStart: number }> = 
           })}
         </div>
       ))}
+      {frame >= fillStart && frame < fillStart + 150 && (() => {
+        // El puntero salta de celda en celda: la carga manual, literal.
+        const pos = (k: number) => {
+          const r = Math.floor(k / (COLS.length - 1));
+          const c = (k % (COLS.length - 1)) + 1;
+          const x = COLS.slice(0, c).reduce((a, col) => a + col.w, 0) + COLS[c].w * 0.55;
+          return { x, y: 38 + r * 32 + 20 };
+        };
+        const a = pos(Math.max(0, done - 1));
+        const b = pos(done);
+        const m = Math.min(1, partial / 0.35);
+        const e = 1 - Math.pow(1 - m, 3);
+        return (
+          <div style={{ position: "absolute", left: a.x + (b.x - a.x) * e, top: a.y + (b.y - a.y) * e }}>
+            <Cursor press={partial > 0.35 && partial < 0.55 ? 1 : 0} />
+          </div>
+        );
+      })()}
     </Glass>
   );
 };
@@ -428,3 +446,100 @@ export const Dashboard: React.FC<{ start: number }> = ({ start }) => {
     </Glass>
   );
 };
+
+// ------------------------------------------------------------ Ilustraciones sueltas del caos
+/** Hoja de papel con renglones y un sello. */
+export const PaperSheet: React.FC<{ stamp?: string; seed?: number }> = ({ stamp = "PENDIENTE", seed = 1 }) => (
+  <div
+    style={{
+      width: 230,
+      height: 300,
+      borderRadius: 6,
+      background: "linear-gradient(170deg, #f1f2f5, #d9dce3)",
+      boxShadow: "0 30px 60px rgba(0,0,0,0.55)",
+      padding: "26px 22px",
+      position: "relative",
+      fontFamily: font.sans,
+    }}
+  >
+    <div style={{ height: 12, width: "55%", background: "#9aa1ad", borderRadius: 3, marginBottom: 18 }} />
+    {Array.from({ length: 9 }).map((_, i) => (
+      <div
+        key={i}
+        style={{ height: 6, width: `${60 + hash(i + seed * 13) * 38}%`, background: "#bfc4cd", borderRadius: 3, marginBottom: 13 }}
+      />
+    ))}
+    <div
+      style={{
+        position: "absolute",
+        right: 16,
+        bottom: 34,
+        transform: "rotate(-14deg)",
+        border: `3px solid ${color.red}`,
+        color: color.red,
+        fontWeight: 800,
+        fontSize: 20,
+        letterSpacing: "0.08em",
+        padding: "4px 10px",
+        borderRadius: 6,
+        opacity: 0.85,
+      }}
+    >
+      {stamp}
+    </div>
+  </div>
+);
+
+/** Nota adhesiva. */
+export const StickyNote: React.FC<{ text: string; tone?: string }> = ({ text, tone = "#f5c451" }) => (
+  <div
+    style={{
+      width: 190,
+      height: 180,
+      background: `linear-gradient(160deg, ${tone}, #e0a92f)`,
+      boxShadow: "0 24px 50px rgba(0,0,0,0.5)",
+      padding: 22,
+      fontFamily: font.serif,
+      fontStyle: "italic",
+      fontSize: 34,
+      lineHeight: 1.05,
+      color: "#3a2a05",
+      clipPath: "polygon(0 0, 100% 0, 100% 86%, 88% 100%, 0 100%)",
+    }}
+  >
+    {text}
+  </div>
+);
+
+/** Reloj con las agujas girando rápido: el tiempo que se va. */
+export const ClockFace: React.FC<{ speed?: number }> = ({ speed = 1 }) => {
+  const frame = useCurrentFrame();
+  const min = frame * 24 * speed;
+  return (
+    <svg width="210" height="210" viewBox="0 0 100 100" style={{ filter: "drop-shadow(0 20px 40px rgba(0,0,0,0.6))" }}>
+      <circle cx="50" cy="50" r="46" fill="#14171e" stroke="rgba(255,255,255,0.35)" strokeWidth="2.5" />
+      {Array.from({ length: 12 }).map((_, i) => (
+        <line
+          key={i}
+          x1="50"
+          y1="9"
+          x2="50"
+          y2={i % 3 === 0 ? 17 : 13}
+          stroke="rgba(255,255,255,0.5)"
+          strokeWidth={i % 3 === 0 ? 2.4 : 1.4}
+          transform={`rotate(${i * 30} 50 50)`}
+        />
+      ))}
+      <line x1="50" y1="50" x2="50" y2="27" stroke="white" strokeWidth="3.5" strokeLinecap="round" transform={`rotate(${min / 12} 50 50)`} />
+      <line x1="50" y1="50" x2="50" y2="15" stroke={color.blueLight} strokeWidth="2.2" strokeLinecap="round" transform={`rotate(${min} 50 50)`} />
+      <circle cx="50" cy="50" r="3.5" fill="white" />
+    </svg>
+  );
+};
+
+/** Puntero del mouse. */
+export const Cursor: React.FC<{ press?: number }> = ({ press = 0 }) => (
+  <svg width="34" height="40" viewBox="0 0 17 20" style={{ transform: `scale(${1 - press * 0.15})`, filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.6))" }}>
+    <path d="M1 1 L1 16 L5 12 L8 19 L11 18 L8 11 L14 11 Z" fill="white" stroke="#111" strokeWidth="1.2" strokeLinejoin="round" />
+  </svg>
+);

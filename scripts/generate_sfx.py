@@ -2,7 +2,7 @@
 Diseño sonoro de la apertura, sintetizado desde cero (sin samples de terceros,
 así no hay problemas de licencia al publicar en LinkedIn o WhatsApp).
 
-Genera public/audio/apertura-sonido.wav (estéreo, 48 kHz, 10 s). Cada sonido
+Genera public/audio/apertura-sonido.wav (estéreo, 48 kHz, 15 s). Cada sonido
 está atado a un evento visual (tiempos en frames a 30 fps, igual que en
 src/Apertura.tsx):
 
@@ -11,7 +11,9 @@ src/Apertura.tsx):
            pulso grave que se acelera y un riser
   238      un instante de silencio
   240      el corte: impacto + barrido brillante
-  240–300  resolución en Fa → Do mayor, más abierta y luminosa
+  240–310  resolución en Fa → Do mayor, más abierta y luminosa
+  310–376  suspenso: la luz nada y dibuja el pez
+  376–450  el logo: impacto, acorde brillante, letras, reflejo y burbujas
 
 Para el video final, la voz de Alan se mezcla encima con ducking.
 """
@@ -22,11 +24,15 @@ import wave
 import numpy as np
 
 SR = 48_000
-DUR = 10.0
+DUR = 15.0
 N = int(SR * DUR)
 t = np.arange(N) / SR
 rng = np.random.default_rng(11)
 SLICE = 240
+OUTRO = 310
+SWIM = 318
+DRAW = 350
+FORMED = 376
 
 
 def fr(frame):
@@ -82,9 +88,11 @@ def pad():
     out = np.zeros(N)
     # tensión (La menor con 9na) → resolución luminosa (Fa maj7 → Do add9)
     chords = [
-        (0.0, fr(SLICE) - 0.05, [45, 57, 60, 64, 71]),
-        (fr(SLICE), fr(SLICE) + 1.0, [41, 53, 57, 60, 64]),
-        (fr(SLICE) + 1.0, DUR, [48, 55, 60, 64, 67, 74]),
+        (0.0, fr(SLICE) - 0.05, [45, 57, 60, 64, 71]),  # La menor 9: tensión
+        (fr(SLICE), fr(SLICE) + 1.0, [41, 53, 57, 60, 64]),  # Fa maj7: alivio
+        (fr(SLICE) + 1.0, fr(OUTRO) + 0.3, [48, 55, 60, 64, 67, 74]),  # Do add9
+        (fr(OUTRO) + 0.3, fr(FORMED) - 0.05, [43, 55, 62, 67]),  # Sol sus: suspenso
+        (fr(FORMED), DUR, [36, 48, 55, 60, 64, 67, 71, 74]),  # Do maj9: el logo
     ]
     for start, end, notes in chords:
         gate = np.clip((t - start) / 0.25, 0, 1) * np.clip((end + 0.05 - t) / 0.15, 0, 1)
@@ -93,7 +101,11 @@ def pad():
                 saw = 2 * ((t * midi(m + det) + hash_phase(m, det)) % 1.0) - 1
                 out += saw * gate * 0.032
     # el filtro se abre de a poco con la tensión y de golpe en la resolución
-    cutoff = np.where(t < fr(SLICE), 500 + 900 * (t / fr(SLICE)) ** 2, 2600)
+    cutoff = np.select(
+        [t < fr(SLICE), t < fr(OUTRO), t < fr(FORMED)],
+        [500 + 900 * (t / fr(SLICE)) ** 2, 2600, 700 + 1400 * ((t - fr(OUTRO)) / (fr(FORMED) - fr(OUTRO))) ** 2],
+        3400,
+    )
     out = lowpass(lowpass(out, cutoff), cutoff * 1.4)
     duck = 1 - 0.95 * np.exp(-((t - fr(SLICE - 2)) ** 2) / 0.002)  # el silencio previo al corte
     return out * duck
@@ -117,7 +129,7 @@ def pulse():
         tt += step
         k += 1
     tt = fr(SLICE) + 0.62
-    while tt < DUR:
+    while tt < fr(OUTRO):
         e = np.exp(-np.arange(int(0.5 * SR)) / SR / 0.2)
         sig = np.sin(2 * np.pi * midi(36) * np.arange(len(e)) / SR) * e
         out += place(sig * 0.32, tt)
@@ -226,9 +238,38 @@ mix += wide(place(riser(fr(SLICE - 202), 0.32), fr(202)))
 mix += stereo(place(impact(1.0, 3.0), fr(SLICE)), 0)
 mix += wide(reverb(place(whoosh(0.5, 0.5, bright=True), fr(SLICE - 6)), 0.4))
 mix += wide(reverb(place(shimmer(), fr(SLICE + 2)), 0.5))
-mix += wide(reverb(place(ping(1568, 0.05, 0.6), fr(SLICE + 38)), 0.6))  # el logo
+for k in range(26):  # los pedazos que vuelan
+    mix += stereo(reverb(place(tick(2600 + rng.random() * 3000, 0.035), fr(SLICE + 2 + rng.random() * 40)), 0.4), rng.random() * 1.6 - 0.8)
 
-fade = np.clip((DUR - t) / 0.5, 0, 1)[:, None]
+
+# ---- final: la luz nada, dibuja el pez y aparece el logo
+def glide(length, f0, f1, gain):
+    n = int(length * SR)
+    x = np.arange(n) / n
+    freq = f0 * (f1 / f0) ** x
+    tone = np.sin(2 * np.pi * np.cumsum(freq) / SR) + 0.3 * np.sin(4 * np.pi * np.cumsum(freq) / SR)
+    return tone * np.sin(np.pi * x) ** 1.5 * gain
+
+
+mix += wide(reverb(place(whoosh(0.9, 0.3), fr(OUTRO))))
+mix += wide(reverb(place(whoosh(fr(DRAW - SWIM) + 0.2, 0.3, bright=True), fr(SWIM)), 0.5))
+mix += stereo(reverb(place(glide(fr(DRAW - SWIM) + 0.1, 330, 660, 0.07), fr(SWIM)), 0.5), -0.3)
+mix += stereo(reverb(place(glide(fr(FORMED - DRAW) + 0.05, 660, 1320, 0.06), fr(DRAW)), 0.6), -0.6)
+mix += stereo(reverb(place(glide(fr(FORMED - DRAW) + 0.05, 660, 1320 * 1.5, 0.05), fr(DRAW)), 0.6), 0.6)
+mix += wide(place(riser(fr(FORMED - OUTRO), 0.2), fr(OUTRO)))
+mix += stereo(place(impact(0.9, 3.5), fr(FORMED)), 0)
+mix += wide(reverb(place(shimmer(4.0, 0.16), fr(FORMED)), 0.6))
+for i in range(6):  # cada letra de VECTOR
+    mix += stereo(reverb(place(ping(1047 * 2 ** ([0, 4, 7, 12, 16, 19][i] / 12), 0.025, 0.4), fr(FORMED + 7 + i * 3.6)), 0.6), -0.5 + i * 0.2)
+mix += wide(reverb(place(whoosh(1.0, 0.22, bright=True), fr(FORMED + 34)), 0.6))  # el reflejo
+mix += wide(reverb(place(ping(2093, 0.04, 1.2), fr(FORMED + 48)), 0.7))
+for i in range(7):  # burbujas
+    b = int(0.07 * SR)
+    tt_b = np.arange(b) / SR
+    blip = np.sin(2 * np.pi * np.cumsum(500 + 1400 * tt_b / 0.07) / SR) * np.exp(-tt_b / 0.025) * 0.035
+    mix += stereo(reverb(place(blip, fr(FORMED + 20 + i * 8)), 0.5), -0.4)
+
+fade = np.clip((DUR - t) / 1.2, 0, 1)[:, None]
 mix *= fade
 mix = np.tanh(mix * 1.2)
 mix *= 10 ** (-1 / 20) / np.max(np.abs(mix))

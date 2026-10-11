@@ -26,6 +26,7 @@ export const font = {
   sans: '"Inter", ui-sans-serif, system-ui, sans-serif',
   serif: '"Instrument Serif", Georgia, serif',
   mono: '"JetBrains Mono", ui-monospace, monospace',
+  brand: '"Michroma", "Inter", sans-serif',
 };
 
 export const FPS = 30;

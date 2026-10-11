@@ -10,8 +10,13 @@ El video habla de los problemas del cliente, no de proyectos puntuales.
    una lista de tareas que se repite todos los días. Todo tiembla cada vez más.
 2. **El corte (8 s).** Una línea de luz azul, el *vector*, cruza la pantalla en
    diagonal. Todo lo anterior se cae.
-3. **El orden (8–45 s).** Aparece un sistema limpio, y desde ahí cada servicio
-   se presenta como la respuesta a un dolor concreto.
+3. **El orden (8–11 s).** Los pedazos vuelan y se reacomodan en un sistema limpio.
+4. **El pez (11–15 s).** La luz azul entra nadando, se divide en dos y dibuja el
+   pez de Vector; destello, onda expansiva, la palabra VECTOR letra por letra,
+   un reflejo que barre el logo y unas burbujas: el pececito respira.
+
+En la versión de 45 s, entre el orden y el logo se suman la presentación de
+Alan y una escena animada por servicio, con este mismo lenguaje visual.
 
 **Estética:** negro de la marca, interfaces de vidrio oscuro con profundidad de
 campo, titulares en Inter con acentos en serif itálica azul (Instrument Serif),

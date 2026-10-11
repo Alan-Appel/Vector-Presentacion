@@ -5,13 +5,15 @@
   "scripts": {
     "studio": "remotion studio",
     "sfx": "python3 scripts/generate_sfx.py",
-    "render:apertura": "remotion render Apertura out/apertura.mp4 --codec h264 --audio-codec aac --crf 18 --browser-executable /opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell"
+    "render:apertura": "remotion render Apertura out/vector-15s.mp4 --codec h264 --audio-codec aac --crf 18 --browser-executable /opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell"
   },
   "dependencies": {
     "@fontsource/instrument-serif": "^5.3.0",
     "@fontsource/inter": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/michroma": "^5.3.0",
     "@remotion/cli": "^4.0.534",
+    "@remotion/paths": "^4.0.534",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "remotion": "^4.0.534"
