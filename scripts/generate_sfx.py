@@ -1,13 +1,19 @@
 """
-Diseño sonoro de la muestra, sintetizado desde cero (sin samples de terceros,
-así no hay problemas de licencia al publicar en LinkedIn).
+Diseño sonoro de la apertura, sintetizado desde cero (sin samples de terceros,
+así no hay problemas de licencia al publicar en LinkedIn o WhatsApp).
 
-Genera public/audio/muestra-sonido.wav (estéreo, 48 kHz, 10 s):
-  - cama musical: pad oscuro en La menor + pulso grave suave a 96 BPM
-  - efectos sincronizados con la animación (tiempos en segundos = frame / 30)
+Genera public/audio/apertura-sonido.wav (estéreo, 48 kHz, 10 s). Cada sonido
+está atado a un evento visual (tiempos en frames a 30 fps, igual que en
+src/Apertura.tsx):
 
-Para el video final, la voz real de Alan se mezcla encima con ducking
-(la música baja automáticamente cuando él habla).
+  0–96     pad oscuro en La menor + tipeo que se acelera (la planilla)
+  96–240   tensión: errores, mensajes que llegan, reloj, notificaciones,
+           pulso grave que se acelera y un riser
+  238      un instante de silencio
+  240      el corte: impacto + barrido brillante
+  240–300  resolución en Fa → Do mayor, más abierta y luminosa
+
+Para el video final, la voz de Alan se mezcla encima con ducking.
 """
 
 import os
@@ -19,168 +25,217 @@ SR = 48_000
 DUR = 10.0
 N = int(SR * DUR)
 t = np.arange(N) / SR
-rng = np.random.default_rng(7)
+rng = np.random.default_rng(11)
+SLICE = 240
 
 
-def f(frame):
+def fr(frame):
     return frame / 30.0
 
 
 def lowpass(x, cutoff):
-    """Filtro de un polo, suficiente para suavizar ruido y sierras."""
-    a = np.exp(-2 * np.pi * cutoff / SR)
+    """Filtro de un polo; `cutoff` puede ser un número o un array por muestra."""
+    cut = np.broadcast_to(np.asarray(cutoff, dtype=float), x.shape)
+    a = np.exp(-2 * np.pi * cut / SR)
     y = np.empty_like(x)
     acc = 0.0
-    for i, v in enumerate(x):
-        acc = (1 - a) * v + a * acc
+    for i in range(len(x)):
+        acc = (1 - a[i]) * x[i] + a[i] * acc
         y[i] = acc
     return y
 
 
-def env(start, attack, decay, length=None):
-    """Envolvente exponencial que arranca en `start` (s)."""
-    e = np.zeros(N)
+def place(sig, start):
+    out = np.zeros(N)
     s = int(start * SR)
-    length = length or attack + decay * 6
-    n = min(int(length * SR), N - s)
-    if n <= 0:
-        return e
-    tt = np.arange(n) / SR
-    att = np.clip(tt / max(attack, 1e-4), 0, 1)
-    dec = np.exp(-np.maximum(tt - attack, 0) / decay)
-    e[s : s + n] = att * dec
-    return e
-
-
-def note(freq):
-    return 440.0 * 2 ** ((freq - 69) / 12)
-
-
-# ---------------------------------------------------------------- música
-def pad():
-    out = np.zeros(N)
-    chords = [(0.0, [57, 60, 64, 69]), (5.0, [53, 57, 60, 65])]  # Am → F
-    for i, (start, notes) in enumerate(chords):
-        end = chords[i + 1][0] if i + 1 < len(chords) else DUR
-        gate = np.clip((t - start) / 1.2, 0, 1) * np.clip((end + 0.6 - t) / 1.2, 0, 1)
-        for m in notes:
-            for detune in (-0.07, 0.0, 0.06):
-                fr = note(m + detune)
-                saw = 2 * ((t * fr) % 1.0) - 1
-                out += saw * gate * 0.05
-    out = lowpass(lowpass(out, 900), 1400)
-    swell = 0.55 + 0.45 * np.clip(t / 3.0, 0, 1)
-    return out * swell
-
-
-def sub_pulse():
-    out = np.zeros(N)
-    beat = 60 / 96
-    k = 0
-    while k * beat < DUR:
-        st = k * beat
-        if st >= f(112) - 0.05:  # el pulso entra con la presentación
-            e = env(st, 0.005, 0.18, 0.8)
-            root = 45 if st < 5.0 else 41
-            out += np.sin(2 * np.pi * note(root - 12) * t) * e * 0.35
-        k += 1
+    if s >= N:
+        return out
+    n = min(len(sig), N - s)
+    out[s : s + n] = sig[:n]
     return out
 
 
-# ---------------------------------------------------------------- efectos
-def hit(start, gain=1.0):
-    """Golpe grave cinematográfico: seno con caída de pitch + cola de ruido."""
-    s = int(start * SR)
-    n = int(2.2 * SR)
-    tt = np.arange(n) / SR
-    freq = 38 + 70 * np.exp(-tt * 18)
-    phase = 2 * np.pi * np.cumsum(freq) / SR
-    body = np.sin(phase) * np.exp(-tt / 0.55)
-    noise = lowpass(rng.standard_normal(n), 500) * np.exp(-tt / 0.25) * 0.6
-    out = np.zeros(N)
-    m = min(n, N - s)
-    out[s : s + m] = (body + noise)[:m] * gain
-    return out
+def midi(m):
+    return 440.0 * 2 ** ((m - 69) / 12)
 
 
-def tick(start, gain=0.25):
-    """Clic seco para cada línea de texto que aparece."""
-    e = env(start, 0.001, 0.012, 0.08)
-    return np.sin(2 * np.pi * 2400 * t) * e * gain + rng.standard_normal(N) * e * gain * 0.4
-
-
-def whoosh(start, length, gain=0.5, rising=True):
-    """Ruido filtrado con barrido: transiciones y la línea azul."""
-    s = int(start * SR)
-    n = min(int(length * SR), N - s)
-    tt = np.linspace(0, 1, n)
-    shape = np.sin(np.pi * tt) ** 2
-    noise = rng.standard_normal(n)
-    lo = lowpass(noise, 600)
-    hi = noise - lowpass(noise, 2500)
-    mix = (lo * (1 - tt) + hi * tt) if rising else (hi * (1 - tt) + lo * tt)
-    out = np.zeros(N)
-    out[s : s + n] = mix * shape * gain
-    return out
-
-
-def riser(start, length, gain=0.18):
-    s = int(start * SR)
-    n = min(int(length * SR), N - s)
-    tt = np.arange(n) / SR
-    freq = 300 * (1 + 3 * (tt / length) ** 2)
-    tone = np.sin(2 * np.pi * np.cumsum(freq) / SR)
-    out = np.zeros(N)
-    out[s : s + n] = tone * (tt / length) ** 2 * gain
-    return out
-
-
-def stereo(x, pan):
-    """pan -1 (izq) … 1 (der), ley de potencia constante."""
+def stereo(x, pan=0.0):
     a = (pan + 1) * np.pi / 4
     return np.stack([x * np.cos(a), x * np.sin(a)], axis=1)
 
 
-def haas(x, ms=11):
+def wide(x, ms=13):
     d = int(SR * ms / 1000)
-    r = np.concatenate([np.zeros(d), x[:-d]])
-    return np.stack([x, r], axis=1)
+    return np.stack([x, np.concatenate([np.zeros(d), x[:-d]])], axis=1)
 
 
-def reverb(x, wet=0.25):
-    """Reverb simple por retardos múltiples, para dar aire."""
+def reverb(x, wet=0.3):
     y = x.copy()
-    for ms, g in [(37, 0.5), (53, 0.42), (71, 0.35), (97, 0.28), (131, 0.2), (173, 0.14)]:
+    for ms, g in [(29, 0.55), (43, 0.47), (61, 0.4), (89, 0.33), (127, 0.26), (173, 0.2), (241, 0.14), (331, 0.09)]:
         d = int(SR * ms / 1000)
         y[d:] += x[:-d] * g
-    return x * (1 - wet) + lowpass(y, 5000) * wet
+    return x * (1 - wet) + lowpass(y, 4500) * wet
+
+
+# ================================================================ música
+def pad():
+    out = np.zeros(N)
+    # tensión (La menor con 9na) → resolución luminosa (Fa maj7 → Do add9)
+    chords = [
+        (0.0, fr(SLICE) - 0.05, [45, 57, 60, 64, 71]),
+        (fr(SLICE), fr(SLICE) + 1.0, [41, 53, 57, 60, 64]),
+        (fr(SLICE) + 1.0, DUR, [48, 55, 60, 64, 67, 74]),
+    ]
+    for start, end, notes in chords:
+        gate = np.clip((t - start) / 0.25, 0, 1) * np.clip((end + 0.05 - t) / 0.15, 0, 1)
+        for m in notes:
+            for det in (-0.08, 0.0, 0.07):
+                saw = 2 * ((t * midi(m + det) + hash_phase(m, det)) % 1.0) - 1
+                out += saw * gate * 0.032
+    # el filtro se abre de a poco con la tensión y de golpe en la resolución
+    cutoff = np.where(t < fr(SLICE), 500 + 900 * (t / fr(SLICE)) ** 2, 2600)
+    out = lowpass(lowpass(out, cutoff), cutoff * 1.4)
+    duck = 1 - 0.95 * np.exp(-((t - fr(SLICE - 2)) ** 2) / 0.002)  # el silencio previo al corte
+    return out * duck
+
+
+def hash_phase(m, det):
+    return (np.sin(m * 12.9898 + det * 78.233) * 43758.5453) % 1.0
+
+
+def pulse():
+    """Pulso grave: corcheas que se aceleran hasta el corte; negras calmas después."""
+    out = np.zeros(N)
+    k = 0.0
+    tt = 0.0
+    while tt < fr(SLICE) - 0.1:
+        if tt > 1.0:
+            e = np.exp(-np.arange(int(0.25 * SR)) / SR / 0.09)
+            sig = np.sin(2 * np.pi * midi(33) * np.arange(len(e)) / SR) * e
+            out += place(sig * 0.4, tt)
+        step = 0.3125 * (1 - 0.55 * (tt / fr(SLICE)) ** 2)  # 96 BPM en corcheas, acelerando
+        tt += step
+        k += 1
+    tt = fr(SLICE) + 0.62
+    while tt < DUR:
+        e = np.exp(-np.arange(int(0.5 * SR)) / SR / 0.2)
+        sig = np.sin(2 * np.pi * midi(36) * np.arange(len(e)) / SR) * e
+        out += place(sig * 0.32, tt)
+        tt += 0.625
+    return out
+
+
+# ================================================================ efectos
+def key_click(gain):
+    n = int(0.03 * SR)
+    tt = np.arange(n) / SR
+    noise = rng.standard_normal(n)
+    hp = noise - lowpass(noise, 1800 + rng.random() * 1500)
+    return hp * np.exp(-tt / 0.006) * gain
+
+
+def impact(gain=1.0, length=2.4):
+    n = int(length * SR)
+    tt = np.arange(n) / SR
+    f = 34 + 90 * np.exp(-tt * 14)
+    body = np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-tt / 0.7)
+    crack = lowpass(rng.standard_normal(n), 1800) * np.exp(-tt / 0.08)
+    return (body + crack * 0.7) * gain
+
+
+def whoosh(length, gain=0.5, bright=False):
+    n = int(length * SR)
+    tt = np.linspace(0, 1, n)
+    shape = np.sin(np.pi * tt) ** 2
+    noise = rng.standard_normal(n)
+    cutoff = 400 + 5000 * tt if bright else 300 + 2200 * np.sin(np.pi * tt)
+    return lowpass(noise, cutoff) * shape * gain * (2.2 if bright else 1.6)
+
+
+def ping(f0, gain=0.2, length=0.35):
+    n = int(length * SR)
+    tt = np.arange(n) / SR
+    sig = np.sin(2 * np.pi * f0 * tt) * np.exp(-tt / 0.06)
+    sig += np.sin(2 * np.pi * f0 * 1.5 * tt) * np.exp(-np.maximum(tt - 0.06, 0) / 0.08) * (tt > 0.06)
+    return sig * gain
+
+
+def glitch(gain=0.12):
+    n = int(0.09 * SR)
+    tt = np.arange(n) / SR
+    sq = np.sign(np.sin(2 * np.pi * (180 + rng.random() * 400) * tt))
+    gate = (np.floor(tt * 120) % 2 == 0).astype(float)
+    return sq * gate * np.exp(-tt / 0.04) * gain
+
+
+def tick(f0=3200, gain=0.12):
+    n = int(0.05 * SR)
+    tt = np.arange(n) / SR
+    return (np.sin(2 * np.pi * f0 * tt) + rng.standard_normal(n) * 0.3) * np.exp(-tt / 0.008) * gain
+
+
+def riser(length, gain=0.25):
+    n = int(length * SR)
+    tt = np.arange(n) / SR
+    x = tt / length
+    tone = np.sin(2 * np.pi * np.cumsum(220 * (1 + 4 * x**2)) / SR)
+    noise = rng.standard_normal(n)
+    noise = lowpass(noise, 300 + 7000 * x**2)
+    return (tone * 0.5 + noise * 1.2) * x**2.5 * gain
+
+
+def shimmer(length=2.5, gain=0.12):
+    n = int(length * SR)
+    tt = np.arange(n) / SR
+    out = np.zeros(n)
+    for i, m in enumerate([84, 88, 91, 96]):
+        d = int(i * 0.07 * SR)
+        e = np.exp(-tt / 0.6)
+        out[d:] += (np.sin(2 * np.pi * midi(m) * tt) * e)[: n - d]
+    return out * gain
 
 
 mix = np.zeros((N, 2))
-mix += haas(pad() * 0.9)
-mix += stereo(sub_pulse(), 0)
+mix += wide(pad())
+mix += stereo(pulse())
 
-mix += stereo(hit(0.0, 0.9), 0)
-for i in range(3):  # aparición de cada problema
-    mix += stereo(reverb(tick(f(8 + i * 16))), -0.3 + 0.3 * i)
-for i in range(3):  # tachado azul
-    mix += stereo(whoosh(f(62 + i * 6), 0.35, 0.16), -0.4 + 0.4 * i)
-mix += haas(reverb(whoosh(f(92), 0.65, 0.42)))  # la línea cruza la pantalla
-mix += stereo(hit(f(112), 0.55), 0)  # entra Alan
-mix += stereo(reverb(tick(f(62 + 112), 0.18)), 0.2)  # logo
-mix += haas(riser(f(190), f(30)))
-mix += haas(reverb(whoosh(f(206), 0.55, 0.45)))
-mix += stereo(hit(f(220), 0.6), 0)  # entra el proyecto
+# ---- 0–96: el gancho
+mix += stereo(place(impact(0.85), 0), 0)
+f = 6.0
+while f < 100:  # tipeo que se acelera, como la carga de la planilla
+    mix += stereo(place(key_click(0.13 + rng.random() * 0.05), fr(f)), (rng.random() - 0.5) * 0.4)
+    f += max(1.6, 4.5 - f / 30)
 
-# fade de salida + normalización a -1 dBFS
-fade = np.clip((DUR - t) / 0.6, 0, 1)[:, None]
+# ---- 96–240: el caos
+mix += wide(reverb(place(whoosh(0.7, 0.35), fr(94))))
+for k in range(5):  # errores en la planilla
+    mix += stereo(reverb(place(glitch(), fr(104 + k * 5))), -0.2 + 0.1 * k)
+mix += wide(reverb(place(whoosh(0.8, 0.3), fr(145))))
+for i in range(12):  # mensajes que llegan
+    at = 100 + round(18 * i - 0.6 * i * i)
+    if at > 140:
+        mix += stereo(reverb(place(ping(1180 + (i % 3) * 120, 0.09), fr(at)), 0.35), 0.5)
+mix += wide(reverb(place(whoosh(0.8, 0.3), fr(192))))
+for k in range(4):  # el reloj de la tarea repetida
+    mix += stereo(place(tick(3400 if k % 2 == 0 else 2700), fr(196 + k * 11)), -0.4)
+for k, at in enumerate([206, 211, 216, 220, 224, 228]):  # notificaciones
+    mix += stereo(reverb(place(ping(760 + k * 70, 0.08, 0.25), fr(at)), 0.4), [-0.6, 0.6][k % 2])
+mix += wide(place(riser(fr(SLICE - 202), 0.32), fr(202)))
+
+# ---- 240: el corte
+mix += stereo(place(impact(1.0, 3.0), fr(SLICE)), 0)
+mix += wide(reverb(place(whoosh(0.5, 0.5, bright=True), fr(SLICE - 6)), 0.4))
+mix += wide(reverb(place(shimmer(), fr(SLICE + 2)), 0.5))
+mix += wide(reverb(place(ping(1568, 0.05, 0.6), fr(SLICE + 38)), 0.6))  # el logo
+
+fade = np.clip((DUR - t) / 0.5, 0, 1)[:, None]
 mix *= fade
-mix = np.tanh(mix * 1.1)
+mix = np.tanh(mix * 1.2)
 mix *= 10 ** (-1 / 20) / np.max(np.abs(mix))
 
 out_dir = os.path.join(os.path.dirname(__file__), "..", "public", "audio")
 os.makedirs(out_dir, exist_ok=True)
-path = os.path.join(out_dir, "muestra-sonido.wav")
+path = os.path.join(out_dir, "apertura-sonido.wav")
 with wave.open(path, "wb") as w:
     w.setnchannels(2)
     w.setsampwidth(2)
